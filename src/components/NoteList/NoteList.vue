@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { cateItem } from '../ListMenu/ICateItem'
 import LocalStorage from '../../util/localStorage'
@@ -24,6 +24,27 @@ const cateList: cateItem[] = reactive(JSON.parse(localCateList!).data)
 const list = ref(LocalStorage('get'))
 const otherList = ref(list.value!.filter(listData => listData.cate === undefined))
 
+onMounted(() => {
+  const uid = localStorage.getItem('uid')
+  const autoSync = localStorage.getItem('autoSync') === 'true' || localStorage.getItem('autoSync') === null
+  if ((uid !== '' && uid !== null) && autoSync) {
+    fetch('https://api.todo.uyou.org.cn/gettodo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uid,
+      }),
+    }).then((res) => {
+      return res.json()
+    }).then((res) => {
+      localStorage.setItem('ToDo', res.data)
+      list.value = LocalStorage('get') as ITodoList[]
+    })
+  }
+})
+
 emitter.on('addCateNote', (date) => {
   const cate = date as addCate
 
@@ -46,7 +67,7 @@ emitter.on('addCateNote', (date) => {
   }
 })
 
-function delCate(id: number) {
+function delCate(id: number | string) {
   for (let i = 0; i < cateList.length; i++) {
     if (cateList[i].id === id)
       cateList.splice(i, 1)
@@ -64,7 +85,7 @@ function delCate(id: number) {
   }
 }
 
-function delWithToDo(id: number) {
+function delWithToDo(id: number | string) {
   const listAll = ref<ITodoList[]>(LocalStorage('get')!)
 
   const resultArr = listAll.value.filter((value) => {
@@ -130,6 +151,41 @@ emitter.on('searchSetOk', (data) => {
   setOk(useData.id, useData.ok)
 })
 
+function edit(id: string | number, name: string, icon: string, color: string | null) {
+  for (let i = 0; i < cateList.length; i++) {
+    if (cateList[i].id === id) {
+      cateList[i].title = name
+      cateList[i].icon = icon
+      cateList[i].color = color
+    }
+  }
+  localStorage.setItem('cate', JSON.stringify({
+    data: cateList,
+  }))
+  emitter.emit('setCate', JSON.stringify({
+    data: cateList,
+  }))
+  if (localStorage.getItem('uid')) {
+    changeCate({
+      uid: localStorage.getItem('uid')!,
+      data: {
+        data: cateList,
+      },
+    })
+  }
+}
+
+function editItem(id: number, title: string, cateId: number | string) {
+  for (let i = 0; i < list.value!.length; i++) {
+    if (list.value![i].id === id) {
+      list.value![i].text = title
+      list.value![i].cate = `${cateId}`
+    }
+  }
+
+  saveItemSet(list.value!)
+}
+
 onBeforeUnmount(() => {
   emitter.off('searchSetOk')
   emitter.off('searchDelete')
@@ -155,6 +211,8 @@ onBeforeUnmount(() => {
       @del-with-to-do="delWithToDo"
       @del-item="del"
       @set-ok="setOk"
+      @edit="edit"
+      @edit-item="editItem"
     />
     <NoteBox
       v-if="otherList.length > 0"
@@ -163,6 +221,7 @@ onBeforeUnmount(() => {
       :other-cate="true"
       @del-item="del"
       @set-ok="setOk"
+      @edit-item="editItem"
     />
     <AddItem v-model="itemText" :open="openAddItem" @close="close" @add="addItem" />
   </div>
